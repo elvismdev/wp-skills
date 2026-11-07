@@ -22,7 +22,7 @@
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { loadChromium, PLAYWRIGHT_MISSING, settle } from './lib/browser.mjs';
+import { loadChromium, PLAYWRIGHT_MISSING, settle, WAIT_UNTIL } from './lib/browser.mjs';
 
 const DEFAULT_BREAKPOINTS = [390, 768, 1280];
 const VIEWPORT_HEIGHT = 900;
@@ -31,13 +31,14 @@ const HELP = `cascade-order.mjs — theme rules that win on the front end only b
 
 Usage:
   node cascade-order.mjs --routes FILE --base URL [--breakpoints 390,768,1280]
-    [--stylesheet /css/frontend.css] [--json FILE] [--timeout 60000]
+    [--stylesheet /css/frontend.css] [--json FILE] [--timeout 60000] [--wait-until networkidle]
 
   --routes FILE      one front-end path per line (# comments allowed). A capture-editor.mjs routes file
                      works as it is: the "=> editor-url" part is ignored.
   --base URL         the local site, e.g. http://mysite.test.
   --stylesheet TEXT  part of the theme stylesheet's URL (default /css/frontend.css).
   --json FILE        also write every change as JSON.
+  --wait-until S     load state to wait for: networkidle (default), load or domcontentloaded.
 
 Each line of the report is an element, a property, and its value as loaded on the front end → with the
 theme stylesheet before the global styles. Set the value through the block (blockGap, a preset, a block
@@ -62,6 +63,7 @@ function parseArgs(argv) {
     stylesheet: '/css/frontend.css',
     json: null,
     timeout: 60000,
+    waitUntil: 'networkidle',
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -87,6 +89,14 @@ function parseArgs(argv) {
         break;
       case '--timeout':
         args.timeout = Number(argv[++i]) || args.timeout;
+        break;
+      case '--wait-until':
+        args.waitUntil = argv[++i];
+        if (!WAIT_UNTIL.includes(args.waitUntil)) {
+          console.error(`--wait-until must be one of ${WAIT_UNTIL.join(', ')}; got ${args.waitUntil}`);
+          args.help = true;
+          args.usageError = true;
+        }
         break;
       case '-h':
       case '--help':
@@ -171,7 +181,7 @@ async function main() {
     for (const width of args.breakpoints) {
       await page.setViewportSize({ width, height: VIEWPORT_HEIGHT });
       for (const url of routes) {
-        await page.goto(url, { waitUntil: 'networkidle', timeout: args.timeout });
+        await page.goto(url, { waitUntil: args.waitUntil, timeout: args.timeout });
         await settle(page);
         const before = await page.evaluate(collect, PROPS);
         const moved = await page.evaluate(reorder, args.stylesheet);

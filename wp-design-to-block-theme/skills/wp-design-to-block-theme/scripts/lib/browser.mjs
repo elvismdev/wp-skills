@@ -8,6 +8,9 @@ import { createRequire } from 'node:module';
 export const PLAYWRIGHT_MISSING =
   'Playwright is not installed. Install it in the current directory first:\n  npm i -D playwright && npx playwright install chromium';
 
+/** Load states page.goto() can wait for. networkidle is the default; load suits pages that never go idle. */
+export const WAIT_UNTIL = ['networkidle', 'load', 'domcontentloaded'];
+
 /** Playwright from beside this script, or else from the current working directory. */
 async function importPlaywright() {
   try {

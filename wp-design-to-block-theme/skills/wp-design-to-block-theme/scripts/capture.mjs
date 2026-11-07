@@ -25,7 +25,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadChromium, PLAYWRIGHT_MISSING, scrollThrough, settle } from './lib/browser.mjs';
+import { loadChromium, PLAYWRIGHT_MISSING, scrollThrough, settle, WAIT_UNTIL } from './lib/browser.mjs';
 import {
   CAPTURED_PROPS,
   DEFAULT_SELECTORS,
@@ -42,13 +42,17 @@ const HELP = `capture.mjs — capture pages for block-theme translation and pari
 
 Usage:
   node capture.mjs <url|file> [<url|file> ...] [--routes FILE] [--base URL|DIR] [--out DIR]
-    [--breakpoints 390,768,1280] [--selectors "body,h1,..."] [--timeout 60000] [--behaviors] [--max-triggers 40]
+    [--breakpoints 390,768,1280] [--selectors "body,h1,..."] [--timeout 60000] [--wait-until networkidle]
+    [--behaviors] [--max-triggers 40]
 
   --routes FILE     one path or URL per line (# comments allowed); paths resolve against --base
                     or the first URL's origin. A capture-editor.mjs routes file works as it is:
                     the "=> editor-url" part is ignored.
   --base URL|DIR    origin for route paths, or a folder of local HTML files.
                     A local file's route folder is its name without .html (index.html → home).
+  --wait-until S    load state to wait for before capturing: networkidle (default), load or
+                    domcontentloaded. Use load for a page whose analytics, payment or chat scripts
+                    keep the network busy, so it never goes idle.
   --behaviors       click each visible control and record the state changes it causes.
   --max-triggers N  cap on controls clicked per breakpoint (default 40).
 
@@ -65,6 +69,7 @@ function parseArgs(argv) {
     breakpoints: DEFAULT_BREAKPOINTS,
     selectors: DEFAULT_SELECTORS,
     timeout: 60000,
+    waitUntil: 'networkidle',
     behaviors: false,
     maxTriggers: 40,
   };
@@ -98,6 +103,9 @@ function parseArgs(argv) {
         args.timeout = Number.isFinite(t) && t > 0 ? t : 60000;
         break;
       }
+      case '--wait-until':
+        args.waitUntil = argv[++i];
+        break;
       case '--behaviors':
         args.behaviors = true;
         break;
@@ -118,7 +126,7 @@ function parseArgs(argv) {
 
 /* ------------------------------------------------------------------ Page loading */
 
-async function openPage(context, url, timeout) {
+async function openPage(context, url, timeout, waitUntil) {
   const page = await context.newPage();
   const network = { failed: [], consoleErrors: [] };
   page.on('requestfailed', (req) =>
@@ -136,7 +144,7 @@ async function openPage(context, url, timeout) {
   });
   page.on('pageerror', (err) => network.consoleErrors.push(String(err.message || err)));
 
-  await page.goto(url, { waitUntil: 'networkidle', timeout });
+  await page.goto(url, { waitUntil, timeout });
   // Smooth scrolling makes scripted scroll positions lag behind; force instant jumps.
   await page.addStyleTag({ content: 'html, body { scroll-behavior: auto !important; }' });
   return { page, network };
@@ -255,7 +263,7 @@ async function clickAndDiff(page, trigger) {
  */
 async function captureBehaviors(context, url, args) {
   const fresh = async () => {
-    const { page } = await openPage(context, url, args.timeout);
+    const { page } = await openPage(context, url, args.timeout, args.waitUntil);
     await settle(page);
     return page;
   };
@@ -306,7 +314,7 @@ async function captureBehaviors(context, url, args) {
 
 async function captureRoute(browser, url, width, dir, args) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, deviceScaleFactor: 1 });
-  const { page, network } = await openPage(context, url, args.timeout);
+  const { page, network } = await openPage(context, url, args.timeout, args.waitUntil);
 
   await scrollThrough(page);
   await settle(page);
@@ -352,6 +360,10 @@ async function main() {
   }
   if (!args.breakpoints.length) {
     console.error('No valid breakpoints; expected e.g. --breakpoints 390,768,1280');
+    process.exit(1);
+  }
+  if (!WAIT_UNTIL.includes(args.waitUntil)) {
+    console.error(`--wait-until must be one of ${WAIT_UNTIL.join(', ')}; got ${args.waitUntil}`);
     process.exit(1);
   }
 
