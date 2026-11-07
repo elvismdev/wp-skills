@@ -407,18 +407,27 @@ async function main() {
           const structure = compareStructure(ds, ls, ref);
           entry.checks.structure = { status: structure.length ? 'FAIL' : 'PASS', problems: structure };
 
-          const sectionProblems = [];
-          for (const [d, l] of pairSections(ds.sections, ls.sections)) {
-            const name = `#${d.index} ${d.tag} "${d.label.slice(0, 40)}"`;
-            if (!l) {
-              sectionProblems.push(`${name}: no matching section`);
-              continue;
+          if (!ds.sections.length) {
+            entry.checks.sections = { status: 'NOT RUN', problems: [`${ref} capture has no sections to compare`] };
+          } else {
+            const sectionProblems = [];
+            const paired = new Set();
+            for (const [d, l] of pairSections(ds.sections, ls.sections)) {
+              const name = `#${d.index} ${d.tag} "${d.label.slice(0, 40)}"`;
+              if (!l) {
+                sectionProblems.push(`${name}: no matching section`);
+                continue;
+              }
+              paired.add(l);
+              for (const p of compareSection(d, l, args.tolerance, ref)) {
+                sectionProblems.push(`${name}: ${p}`);
+              }
             }
-            for (const p of compareSection(d, l, args.tolerance, ref)) {
-              sectionProblems.push(`${name}: ${p}`);
+            for (const l of ls.sections.filter((section) => !paired.has(section))) {
+              sectionProblems.push(`#${l.index} ${l.tag} "${l.label.slice(0, 40)}": no matching ${ref} section`);
             }
+            entry.checks.sections = { status: sectionProblems.length ? 'FAIL' : 'PASS', problems: sectionProblems };
           }
-          entry.checks.sections = { status: sectionProblems.length ? 'FAIL' : 'PASS', problems: sectionProblems };
         } else {
           entry.checks.structure = { status: 'NOT RUN', problems: ['sections JSON missing'] };
           entry.checks.sections = { status: 'NOT RUN', problems: ['sections JSON missing'] };
