@@ -329,6 +329,7 @@ async function pixelDiff(page, designPng, localPng, diffBase) {
       return {
         percent: (different / (width * height)) * 100,
         heights: [ia.height, ib.height],
+        widths: [ia.width, ib.width],
         slices,
       };
     },
@@ -346,7 +347,7 @@ async function pixelDiff(page, designPng, localPng, diffBase) {
       writeFileSync(file, Buffer.from(slice.png, 'base64'));
     }
   });
-  return { percent: result.percent, heights: result.heights };
+  return { percent: result.percent, heights: result.heights, widths: result.widths };
 }
 
 /* ------------------------------------------------------------------ Main */
@@ -427,9 +428,21 @@ async function main() {
         const dShot = `${dPath('shot')}.png`;
         const lShot = `${lPath('shot')}.png`;
         if (page && existsSync(dShot) && existsSync(lShot)) {
-          const { percent, heights } = await pixelDiff(page, dShot, lShot, lPath('diff'));
+          const { percent, heights, widths } = await pixelDiff(page, dShot, lShot, lPath('diff'));
           const problems = [`${percent.toFixed(2)}% pixels differ (${ref} ${heights[0]}px tall, compared ${heights[1]}px)`];
-          entry.checks.pixels = { status: percent > args.pixelThreshold ? 'FAIL' : 'PASS', problems };
+          // A full-page screenshot is wider than its breakpoint when the page overflows horizontally.
+          // The diff covers only the narrower width, so a width mismatch fails on its own.
+          const widthMismatch = widths[0] !== widths[1];
+          if (widthMismatch) {
+            const wider = widths[1] > widths[0] ? 'compared page' : ref;
+            problems.push(
+              `screenshot widths differ at ${width}px (${ref} ${widths[0]}px, compared ${widths[1]}px): the ${wider} overflows horizontally`
+            );
+          }
+          entry.checks.pixels = {
+            status: widthMismatch || percent > args.pixelThreshold ? 'FAIL' : 'PASS',
+            problems,
+          };
         } else {
           entry.checks.pixels = {
             status: 'NOT RUN',
