@@ -1,0 +1,34 @@
+name: Sync upstream
+
+# Fork-only. Merges s3rgiosan/wp-skills main into this fork's main once a day, keeping the fork's
+# fixes on top. GitHub's merge-upstream API fast-forwards or merges when it can and answers 409 on a
+# conflict; the job then fails with the conflict named, and resolving it is a local merge.
+
+on:
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Merge upstream main into main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          if out=$(gh api -X POST "repos/$REPO/merge-upstream" -f branch=main 2>&1); then
+            echo "$out"
+            echo "### Upstream sync" >> "$GITHUB_STEP_SUMMARY"
+            echo "$out" | jq -r '"merge type: \(.merge_type), \(.message)"' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "$out"
+            echo "::error::Upstream main could not be merged into main. Resolve locally: git fetch upstream && git merge upstream/main, then run fork-tests/wp-design-to-block-theme/run.sh before pushing."
+            exit 1
+          fi
